@@ -1,0 +1,29 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build output
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+build/
+
+# Compiled
+*.obj
+*.o
+*.exe
+*.out
+*.app
+*.ilk
+*.pdb
+*.idb
+*.lib
+*.dll
+*.exp
