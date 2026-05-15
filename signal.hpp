@@ -37,4 +37,5 @@ TradeSetup make_trade_setup(
     int                      signal_bar_idx,
     int                      entry_bar_idx,
     double                   tp_pips,
-    double                   sl_pips);
+    double                   sl_pips,
+    double                   lots);

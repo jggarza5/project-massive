@@ -66,6 +66,7 @@ struct Instrument {
 struct TradeSetup {
     std::string symbol;
     Direction   direction;
+    double      lots;           // fixed lot size from config
     double      entry;          // ask_open (long) or bid_open (short)
     double      take_profit;
     double      stop_loss;

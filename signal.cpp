@@ -61,7 +61,8 @@ TradeSetup make_trade_setup(
     int               signal_bar_idx,
     int               entry_bar_idx,
     double            tp_pips,
-    double            sl_pips)
+    double            sl_pips,
+    double            lots)
 {
     if (tp_pips <= 0.0 || sl_pips <= 0.0)
         throw std::invalid_argument("tp_pips and sl_pips must be positive");
@@ -71,8 +72,8 @@ TradeSetup make_trade_setup(
     double sl_dist   = sl_pips * pip;
 
     double entry = (direction == Direction::Long)
-        ? entry_bar.ask_open    // paying the spread on long entry
-        : entry_bar.bid_open;   // selling at bid on short entry
+        ? entry_bar.ask_open
+        : entry_bar.bid_open;
 
     double tp, sl;
     if (direction == Direction::Long) {
@@ -86,6 +87,7 @@ TradeSetup make_trade_setup(
     return TradeSetup{
         instrument.symbol,
         direction,
+        lots,
         entry,
         tp,
         sl,
