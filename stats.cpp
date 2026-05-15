@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <stdexcept>
 
-
 // ─────────────────────────────────────────────
 //  Internal helpers
 // ─────────────────────────────────────────────
@@ -175,16 +174,6 @@ StatsResult compute_stats(const SimulationResult& result) {
 // ─────────────────────────────────────────────
 
 void print_stats(const StatsResult& stats) {
-    auto pct = [](double v) {
-        return std::fixed << std::setprecision(1) << v * 100.0 << "%";
-    };
-    auto usd = [](double v) {
-        return std::fixed << std::setprecision(2) << v;
-    };
-    auto f2 = [](double v) {
-        return std::fixed << std::setprecision(2) << v;
-    };
-
     std::cout << "\n";
     std::cout << "══════════════════════════════════════\n";
     std::cout << "  BACKTEST RESULTS\n";
@@ -192,36 +181,33 @@ void print_stats(const StatsResult& stats) {
     std::cout << "  Total trades      : " << stats.total_trades    << "\n";
     std::cout << "  Winners           : " << stats.winning_trades  << "\n";
     std::cout << "  Losers            : " << stats.losing_trades   << "\n";
-    std::cout << "  Win rate          : " << pct(stats.win_rate)   << "\n";
+    std::cout << "  Win rate          : " << std::fixed << std::setprecision(1) << stats.win_rate * 100.0 << "%\n";
     std::cout << "──────────────────────────────────────\n";
-    std::cout << "  Net P&L           : $" << usd(stats.net_pnl)     << "\n";
-    std::cout << "  Gross profit      : $" << usd(stats.gross_profit) << "\n";
-    std::cout << "  Gross loss        : $" << usd(stats.gross_loss)   << "\n";
-    std::cout << "  Profit factor     : "  << f2(stats.profit_factor) << "\n";
-    std::cout << "  Expectancy        : $" << usd(stats.expectancy)   << "\n";
+    std::cout << "  Net P&L           : $" << std::fixed << std::setprecision(2) << stats.net_pnl            << "\n";
+    std::cout << "  Gross profit      : $" << std::fixed << std::setprecision(2) << stats.gross_profit       << "\n";
+    std::cout << "  Gross loss        : $" << std::fixed << std::setprecision(2) << stats.gross_loss         << "\n";
+    std::cout << "  Profit factor     : "  << std::fixed << std::setprecision(2) << stats.profit_factor      << "\n";
+    std::cout << "  Expectancy        : $" << std::fixed << std::setprecision(2) << stats.expectancy         << "\n";
     std::cout << "──────────────────────────────────────\n";
-    std::cout << "  Avg win           : $" << usd(stats.avg_win)      << "\n";
-    std::cout << "  Avg loss          : $" << usd(stats.avg_loss)     << "\n";
-    std::cout << "  Avg R:R           : "  << f2(stats.avg_rr)        << "\n";
+    std::cout << "  Avg win           : $" << std::fixed << std::setprecision(2) << stats.avg_win            << "\n";
+    std::cout << "  Avg loss          : $" << std::fixed << std::setprecision(2) << stats.avg_loss           << "\n";
+    std::cout << "  Avg R:R           : "  << std::fixed << std::setprecision(2) << stats.avg_rr             << "\n";
     std::cout << "──────────────────────────────────────\n";
-    std::cout << "  Max drawdown      : $" << usd(stats.max_drawdown)     << "\n";
-    std::cout << "  Max drawdown %    : "  << std::fixed << std::setprecision(1)
-              << stats.max_drawdown_pct << "%\n";
-    std::cout << "  Sharpe ratio      : "  << f2(stats.sharpe_ratio)  << "\n";
-    std::cout << "  Sortino ratio     : "  << f2(stats.sortino_ratio) << "\n";
+    std::cout << "  Max drawdown      : $" << std::fixed << std::setprecision(2) << stats.max_drawdown       << "\n";
+    std::cout << "  Max drawdown %    : "  << std::fixed << std::setprecision(1) << stats.max_drawdown_pct   << "%\n";
+    std::cout << "  Sharpe ratio      : "  << std::fixed << std::setprecision(2) << stats.sharpe_ratio       << "\n";
+    std::cout << "  Sortino ratio     : "  << std::fixed << std::setprecision(2) << stats.sortino_ratio      << "\n";
     std::cout << "──────────────────────────────────────\n";
-    std::cout << "  Avg duration      : "  << f2(stats.avg_duration_bars) << " bars\n";
-    std::cout << "  Max duration      : "  << stats.max_duration_bars    << " bars\n";
+    std::cout << "  Avg duration      : "  << std::fixed << std::setprecision(2) << stats.avg_duration_bars  << " bars\n";
+    std::cout << "  Max duration      : "  << stats.max_duration_bars                                        << " bars\n";
     std::cout << "──────────────────────────────────────\n";
     std::cout << "  BY SYMBOL\n";
     std::cout << "──────────────────────────────────────\n";
     for (const auto& ss : stats.by_symbol) {
-        std::cout << "  " << std::left << std::setw(8) << ss.symbol
+        std::cout << "  " << std::left  << std::setw(8) << ss.symbol
                   << "  trades: " << std::setw(4) << ss.trades
-                  << "  P&L: $"   << std::setw(10) << std::fixed
-                  << std::setprecision(2) << ss.net_pnl
-                  << "  WR: "     << std::fixed << std::setprecision(1)
-                  << ss.win_rate * 100.0 << "%\n";
+                  << "  P&L: $"   << std::setw(10) << std::fixed << std::setprecision(2) << ss.net_pnl
+                  << "  WR: "     << std::fixed    << std::setprecision(1) << ss.win_rate * 100.0 << "%\n";
     }
     std::cout << "══════════════════════════════════════\n\n";
 }
