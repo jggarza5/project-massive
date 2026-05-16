@@ -251,10 +251,11 @@ SimulationResult run_simulation(
 
     // Reset runtime state
     for (auto& s : symbols) {
-        s.open_position = std::nullopt;
-        s.trades_today  = 0;
-        s.pending_mr    = {};
-        s.pending_trend = {};
+        s.open_position          = std::nullopt;
+        s.trades_today           = 0;
+        s.signal_consumed_today  = false;
+        s.pending_mr             = {};
+        s.pending_trend          = {};
     }
 
     SimulationResult result;
@@ -285,10 +286,11 @@ SimulationResult run_simulation(
             // For 4h bars this prevents resetting every 4h period.
             int cal_day = static_cast<int>(ts / 86400LL);
             if (cal_day != last_day_idx[si]) {
-                sym.trades_today  = 0;
-                sym.pending_mr    = {};
-                sym.pending_trend = {};
-                last_day_idx[si]  = cal_day;
+                sym.trades_today          = 0;
+                sym.signal_consumed_today = false;
+                sym.pending_mr            = {};
+                sym.pending_trend         = {};
+                last_day_idx[si]          = cal_day;
             }
 
             // ── Execute pending entries ────────────────
@@ -304,6 +306,7 @@ SimulationResult run_simulation(
                                 config, ts, today_idx, b, sym))
                 {
                     ++sym.trades_today;
+                    sym.signal_consumed_today = true;
                     sym.pending_trend = {};  // cancel other
                     fired = true;
                 }
@@ -313,6 +316,7 @@ SimulationResult run_simulation(
                                 sym.instrument, config, ts, today_idx, b, sym))
                 {
                     ++sym.trades_today;
+                    sym.signal_consumed_today = true;
                     sym.pending_mr = {};     // cancel other
                 }
             }
@@ -354,7 +358,11 @@ SimulationResult run_simulation(
             }
 
             // ── Arm new pending entries on signal ─────
+            // Guard: don't re-arm if this daily signal has already
+            // produced a trade today. Prevents the same signal from
+            // re-triggering after a fast TP/SL exit on the same bar.
             if (!sym.open_position.has_value()
+                && !sym.signal_consumed_today
                 && sym.trades_today < config.max_trades_per_day
                 && b + 1 < num_sub)
             {

@@ -14,6 +14,7 @@ x86/
 [Oo]bj/
 [Oo]ut/
 build/
+backtest-viewer/
 
 # Compiled
 *.obj

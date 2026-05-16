@@ -53,9 +53,10 @@ static SymbolData slice_symbol_data(
     SymbolData out;
     out.instrument    = src.instrument;
     out.open_position = std::nullopt;
-    out.trades_today  = 0;
-    out.pending_mr    = {};
-    out.pending_trend = {};
+    out.trades_today          = 0;
+    out.signal_consumed_today = false;
+    out.pending_mr            = {};
+    out.pending_trend         = {};
 
     for (const auto& b : src.bars_daily)
         if (b.timestamp >= data_start && b.timestamp < end_epoch)
@@ -131,10 +132,11 @@ static std::pair<BacktestConfig, SimulationResult> run_sweep_on_window(
 
                 auto sym_copy = symbols;
                 for (auto& s : sym_copy) {
-                    s.open_position = std::nullopt;
-                    s.trades_today  = 0;
-                    s.pending_mr    = {};
-                    s.pending_trend = {};
+                    s.open_position         = std::nullopt;
+                    s.trades_today          = 0;
+                    s.signal_consumed_today = false;
+                    s.pending_mr            = {};
+                    s.pending_trend         = {};
                 }
 
                 bool has_bars = false;

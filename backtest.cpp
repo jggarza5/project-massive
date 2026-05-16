@@ -38,13 +38,14 @@ std::vector<SymbolData> Backtest::fresh_copy(
     copy.reserve(source.size());
     for (const auto& s : source) {
         SymbolData f;
-        f.instrument    = s.instrument;
-        f.bars_daily    = s.bars_daily;
-        f.bars_sub      = s.bars_sub;
-        f.open_position = std::nullopt;
-        f.trades_today  = 0;
-        f.pending_mr    = {};
-        f.pending_trend = {};
+        f.instrument            = s.instrument;
+        f.bars_daily            = s.bars_daily;
+        f.bars_sub              = s.bars_sub;
+        f.open_position         = std::nullopt;
+        f.trades_today          = 0;
+        f.signal_consumed_today = false;
+        f.pending_mr            = {};
+        f.pending_trend         = {};
         copy.push_back(std::move(f));
     }
     return copy;

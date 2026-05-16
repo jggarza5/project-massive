@@ -51,7 +51,10 @@ struct SymbolData {
     std::vector<Bar>     bars_sub;
     std::optional<OpenPosition> open_position;
 
-    int          trades_today = 0;
+    int          trades_today          = 0;
+    bool         signal_consumed_today = false;  // prevents re-arming
+                                                 // the same daily signal
+                                                 // after a trade closes
     PendingEntry pending_mr;     // mean reversion pending
     PendingEntry pending_trend;  // trend continuation pending
 };
