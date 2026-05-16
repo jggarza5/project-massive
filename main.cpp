@@ -2,8 +2,10 @@
 #include "config.hpp"
 #include <iostream>
 #include <stdexcept>
+#include <windows.h>
 
 int main(int argc, char* argv[]) {
+    SetConsoleOutputCP(CP_UTF8);
     try {
         // Load config from file — defaults to config.toml in working directory.
         // Override with: backtest.exe run my_config.toml

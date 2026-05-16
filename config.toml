@@ -4,10 +4,10 @@
 
 [database]
 host     = "localhost"
-port     = "5432"
-dbname   = "massive"
+port     = "6543"
+dbname   = "postgres"
 user     = "postgres"
-password = ""
+password = "password"
 
 [data]
 parquet_30   = "C:/code/python/forex-data/bars_2025.parquet"

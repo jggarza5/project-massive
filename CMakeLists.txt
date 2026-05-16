@@ -41,6 +41,10 @@ target_include_directories(backtest PRIVATE
 #  Link libraries
 # ─────────────────────────────────────────────
 
+if(MSVC)
+    target_link_options(backtest PRIVATE /FORCE:MULTIPLE)
+endif()
+
 target_link_libraries(backtest PRIVATE
     libpqxx::pqxx
     duckdb
