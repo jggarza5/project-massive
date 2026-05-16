@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(libpqxx CONFIG REQUIRED)
 find_package(DuckDB  CONFIG REQUIRED)
+find_package(tomlplusplus CONFIG REQUIRED)
 
 # ─────────────────────────────────────────────
 #  Sources
@@ -18,6 +19,7 @@ find_package(DuckDB  CONFIG REQUIRED)
 
 add_executable(backtest
     main.cpp
+    config.cpp
     signal.cpp
     simulation.cpp
     database.cpp
@@ -42,6 +44,7 @@ target_include_directories(backtest PRIVATE
 target_link_libraries(backtest PRIVATE
     libpqxx::pqxx
     duckdb
+    tomlplusplus::tomlplusplus
 )
 
 # ─────────────────────────────────────────────

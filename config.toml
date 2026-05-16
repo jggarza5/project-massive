@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────
+#  project-massive backtest configuration
+# ─────────────────────────────────────────────
+
+[database]
+host     = "localhost"
+port     = "5432"
+dbname   = "massive"
+user     = "postgres"
+password = ""
+
+[data]
+parquet_30   = "C:/code/python/forex-data/bars_2025.parquet"
+parquet_1min = "C:/code/python/forex-data/bars_2025_1min.parquet"
+start_date   = "2025-01-01"
+end_date     = "2026-01-01"
+
+[account]
+initial_equity = 10000.0
+
+# ─────────────────────────────────────────────
+#  Single run parameters
+#  Used when running: backtest.exe run
+# ─────────────────────────────────────────────
+
+[single]
+label           = "initial_test"
+lookback        = 10
+divisor         = 4.0
+take_profit_pips = 50.0
+stop_loss_pips   = 25.0
+lots             = 0.1
+
+# ─────────────────────────────────────────────
+#  Sweep parameters
+#  Used when running: backtest.exe sweep
+#  All combinations of the vectors below
+#  will be tested.
+# ─────────────────────────────────────────────
+
+[sweep]
+lots      = 0.1
+lookbacks = [5, 10, 20]
+divisors  = [2.0, 4.0, 8.0]
+tp_pips   = [30.0, 50.0, 80.0]
+sl_pips   = [15.0, 25.0, 40.0]

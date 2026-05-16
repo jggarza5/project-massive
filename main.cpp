@@ -1,89 +1,44 @@
 #include "backtest.hpp"
+#include "config.hpp"
 #include <iostream>
 #include <stdexcept>
-#include <windows.h>
-
-// ─────────────────────────────────────────────
-//  Database configuration
-//  Edit these to match your PostgreSQL setup
-// ─────────────────────────────────────────────
-
-static DatabaseConfig make_db_config() {
-    DatabaseConfig cfg;
-    cfg.host     = "localhost";
-    cfg.port     = "6543";
-    cfg.dbname   = "postgres";
-    cfg.user     = "postgres";
-    cfg.password = "password";  // set if needed
-    return cfg;
-}
-
-// ─────────────────────────────────────────────
-//  Single run
-//  Quick test with one parameter set
-// ─────────────────────────────────────────────
-
-static void single_run(Backtest& bt) {
-    BacktestConfig config;
-    config.lookback         = 10;
-    config.divisor          = 4.0;
-    config.take_profit_pips = 50.0;
-    config.stop_loss_pips   = 25.0;
-    config.lots             = 0.1;
-
-    auto run = bt.run(config, "initial_test");
-
-    std::cout << "\nRun ID: " << run.run_id << "\n";
-    std::cout << "Net P&L: $" << run.stats.net_pnl << "\n";
-    std::cout << "Sharpe:  "  << run.stats.sharpe_ratio << "\n";
-}
-
-// ─────────────────────────────────────────────
-//  Parameter sweep
-//  Explores combinations of lookback/divisor
-//  and TP/SL ratios
-// ─────────────────────────────────────────────
-
-static void parameter_sweep(Backtest& bt) {
-    std::vector<int>    lookbacks = { 5, 10, 20 };
-    std::vector<double> divisors  = { 2.0, 4.0, 8.0 };
-    std::vector<double> tp_pips   = { 30.0, 50.0, 80.0 };
-    std::vector<double> sl_pips   = { 15.0, 25.0, 40.0 };
-
-    auto runs = bt.sweep(lookbacks, divisors, tp_pips, sl_pips, 0.1);
-
-    Backtest::print_leaderboard(runs, 10);
-}
-
-// ─────────────────────────────────────────────
-//  main
-// ─────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
-    SetConsoleOutputCP(CP_UTF8);
     try {
-        auto db_config = make_db_config();
+        // Load config from file — defaults to config.toml in working directory.
+        // Override with: backtest.exe run my_config.toml
+        std::string config_path = "config.toml";
+        std::string mode        = "run";
+
+        if (argc > 1) mode        = argv[1];
+        if (argc > 2) config_path = argv[2];
+
+        auto cfg = load_config(config_path);
 
         Backtest bt(
-            db_config,
-            "C:/code/python/forex-data/bars_2025.parquet",
-            "C:/code/python/forex-data/bars_2025_1min.parquet",
-            "2025-01-01",   // start date (inclusive)
-            "2026-01-01",   // end date   (exclusive)
-            10000.0         // initial equity (USD)
+            cfg.db,
+            cfg.parquet_30,
+            cfg.parquet_1min,
+            cfg.start_date,
+            cfg.end_date,
+            cfg.initial_equity
         );
 
-        // Choose mode via command line argument:
-        //   ./backtest run    — single run
-        //   ./backtest sweep  — parameter sweep
-        //   (default)         — single run
-
-        std::string mode = (argc > 1) ? argv[1] : "run";
-
         if (mode == "sweep") {
-            parameter_sweep(bt);
+            auto runs = bt.sweep(
+                cfg.sweep.lookbacks,
+                cfg.sweep.divisors,
+                cfg.sweep.tp_pips,
+                cfg.sweep.sl_pips,
+                cfg.sweep.lots
+            );
+            Backtest::print_leaderboard(runs, 10);
+
         } else {
-            single_run(bt);
+            auto run = bt.run(cfg.single, cfg.single_label);
+            std::cout << "\nRun ID: " << run.run_id   << "\n"
+                      << "Net P&L: $" << run.stats.net_pnl      << "\n"
+                      << "Sharpe:  "  << run.stats.sharpe_ratio  << "\n";
         }
 
     } catch (const std::exception& e) {

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <iostream>
+#include <limits>
 
 // ─────────────────────────────────────────────
 //  compute_entry_threshold
@@ -168,12 +169,11 @@ SimulationResult run_simulation(
     if (symbols.empty())
         throw std::invalid_argument("No symbols provided");
 
-    int num_bars_30 = static_cast<int>(symbols[0].bars_30.size());
-    for (const auto& s : symbols) {
-        if (static_cast<int>(s.bars_30.size()) != num_bars_30)
-            throw std::invalid_argument(
-                "30-min bar count mismatch: " + s.instrument.symbol);
-    }
+    int num_bars_30 = std::numeric_limits<int>::max();
+    for (const auto& s : symbols)
+        num_bars_30 = std::min(num_bars_30, static_cast<int>(s.bars_30.size()));
+    if (num_bars_30 == 0)
+        throw std::invalid_argument("No bar data");
 
     SimulationResult result;
     result.initial_equity = initial_equity;
