@@ -269,17 +269,28 @@ SimulationResult run_simulation(
                 double threshold = compute_entry_threshold(
                     bar_30, *sig, trigger);
 
-                // Scan 1-min bars in THIS 30-min window for threshold cross
+                // ── Lookahead fix ──────────────────────────────
+                // Signal fires on bar i CLOSE.
+                // Scan 1-min bars in bar i+1's window — not bar i.
+                // This ensures we only use information available
+                // after bar i has fully closed.
+                long long next_bar_ts = sym.bars_30[i + 1].timestamp;
+                auto [next_start, next_end] = find_1min_range(
+                    sym.bars_1, next_bar_ts, m1_end);
+
                 int entry_idx = find_entry_bar(
-                    sym.bars_1, m1_start, m1_end, *sig, threshold);
+                    sym.bars_1, next_start, next_end, *sig, threshold);
 
-                if (entry_idx < 0) continue; // threshold not reached
+                if (entry_idx < 0) continue; // threshold not reached in i+1
 
-                // Entry fills at threshold price
-                double entry_price = threshold;
+                // Entry at CLOSE of the crossing 1-min bar.
+                // Long fills at ask_close, short fills at bid_close.
+                double entry_price = (*sig == Direction::Long)
+                    ? sym.bars_1[entry_idx].ask_close
+                    : sym.bars_1[entry_idx].bid_close;
 
                 // Compute TP/SL from entry
-                double pip    = sym.instrument.pip_size;
+                double pip     = sym.instrument.pip_size;
                 double tp_dist = config.take_profit_pips * pip;
                 double sl_dist = config.stop_loss_pips   * pip;
 

@@ -1,6 +1,7 @@
 #include "backtest.hpp"
 #include <iostream>
 #include <stdexcept>
+#include <windows.h>
 
 // ─────────────────────────────────────────────
 //  Database configuration
@@ -10,10 +11,10 @@
 static DatabaseConfig make_db_config() {
     DatabaseConfig cfg;
     cfg.host     = "localhost";
-    cfg.port     = "5432";
-    cfg.dbname   = "massive";
+    cfg.port     = "6543";
+    cfg.dbname   = "postgres";
     cfg.user     = "postgres";
-    cfg.password = "";          // set if needed
+    cfg.password = "password";  // set if needed
     return cfg;
 }
 
@@ -59,6 +60,7 @@ static void parameter_sweep(Backtest& bt) {
 // ─────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
+    SetConsoleOutputCP(CP_UTF8);
     try {
         auto db_config = make_db_config();
 
