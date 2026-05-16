@@ -1,120 +1,93 @@
 #include "backtest.hpp"
-#include "signal.hpp"
 #include "stats.hpp"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
 #include <stdexcept>
 
-// ─────────────────────────────────────────────
-//  Constructor
-// ─────────────────────────────────────────────
-
 Backtest::Backtest(
     const DatabaseConfig& db_config,
-    const std::string&    parquet_30,
-    const std::string&    parquet_1,
+    const std::string&    parquet_daily,
+    const std::string&    parquet_sub,
     const std::string&    start_date,
     const std::string&    end_date,
     double                initial_equity)
-    : db_config_      (db_config)
-    , parquet_30_     (parquet_30)
-    , parquet_1_      (parquet_1)
-    , start_date_     (start_date)
-    , end_date_       (end_date)
-    , initial_equity_ (initial_equity)
+    : db_config_     (db_config)
+    , parquet_daily_ (parquet_daily)
+    , parquet_sub_   (parquet_sub)
+    , start_date_    (start_date)
+    , end_date_      (end_date)
+    , initial_equity_(initial_equity)
 {}
 
-// ─────────────────────────────────────────────
-//  load_symbols
-// ─────────────────────────────────────────────
-
 std::vector<SymbolData> Backtest::load_symbols() {
-    BarLoader loader(parquet_30_, parquet_1_);
-    auto symbols = loader.load_all_symbols(start_date_, end_date_);
-
-    if (symbols.empty())
-        throw std::runtime_error(
-            "No bar data loaded — check Parquet paths and date range");
-
-    std::cout << "[backtest] Loaded " << symbols.size()
-              << " symbols\n"
-              << "[backtest] 30-min bars: " << symbols[0].bars_30.size() << "\n"
-              << "[backtest]  1-min bars: " << symbols[0].bars_1.size()  << "\n";
-
-    return symbols;
+    BarLoader loader(parquet_daily_, parquet_sub_);
+    auto syms = loader.load_all_symbols(start_date_, end_date_);
+    if (syms.empty())
+        throw std::runtime_error("No bar data loaded");
+    std::cout << "[backtest] " << syms.size() << " symbols | "
+              << "daily=" << syms[0].bars_daily.size()
+              << " sub=" << syms[0].bars_sub.size() << "\n";
+    return syms;
 }
-
-// ─────────────────────────────────────────────
-//  fresh_copy
-//  Deep copy of SymbolData — bars shared,
-//  open positions reset for each sweep run
-// ─────────────────────────────────────────────
 
 std::vector<SymbolData> Backtest::fresh_copy(
     const std::vector<SymbolData>& source)
 {
     std::vector<SymbolData> copy;
     copy.reserve(source.size());
-
     for (const auto& s : source) {
-        SymbolData fresh;
-        fresh.instrument    = s.instrument;
-        fresh.bars_30       = s.bars_30;    // shared read-only data
-        fresh.bars_1        = s.bars_1;
-        fresh.open_position = std::nullopt;
-        copy.push_back(std::move(fresh));
+        SymbolData f;
+        f.instrument    = s.instrument;
+        f.bars_daily    = s.bars_daily;
+        f.bars_sub      = s.bars_sub;
+        f.open_position = std::nullopt;
+        f.trades_today  = 0;
+        f.pending_mr    = {};
+        f.pending_trend = {};
+        copy.push_back(std::move(f));
     }
-
     return copy;
 }
-
-// ─────────────────────────────────────────────
-//  run
-// ─────────────────────────────────────────────
 
 BacktestRun Backtest::run(
     const BacktestConfig& config,
     const std::string&    label)
 {
-    std::cout << "\n[backtest] Starting run: " << label << "\n"
-              << "[backtest] lookback=" << config.lookback
-              << " divisor="           << config.divisor
-              << " tp="                << config.take_profit_pips
-              << " sl="                << config.stop_loss_pips
-              << " lots="              << config.lots << "\n";
+    std::cout << "\n[backtest] Run: " << label << "\n"
+              << "  entry=" << config.entry_donchian_period
+              << "  atr="   << config.atr_period
+              << "  tp="    << config.tp_atr_mult << "x"
+              << "  sl="    << config.sl_atr_mult << "x"
+              << "  max_trades=" << config.max_trades_per_day << "\n";
 
     auto symbols = load_symbols();
     auto result  = run_simulation(symbols, config, initial_equity_);
     auto stats   = compute_stats(result);
-
     print_stats(stats);
 
     ResultWriter writer(db_config_);
     writer.create_tables();
-    std::string run_id = writer.save(result, stats, config, label);
+    auto run_id = writer.save(result, stats, config, label);
 
     return BacktestRun{ run_id, config, std::move(result), std::move(stats) };
 }
 
-// ─────────────────────────────────────────────
-//  sweep
-// ─────────────────────────────────────────────
-
 std::vector<BacktestRun> Backtest::sweep(
-    const std::vector<int>&    lookbacks,
-    const std::vector<double>& divisors,
-    const std::vector<double>& tp_pips_vec,
-    const std::vector<double>& sl_pips_vec,
+    StrategyMode               cfg_sweep_mode,
+    const std::vector<int>&    entry_periods,
+    const std::vector<double>& trigger_atr_mults,
+    const std::vector<double>& tp_atr_mults,
+    const std::vector<double>& sl_atr_mults,
+    int                        atr_period,
+    int                        max_trades_per_day,
     double                     lots)
 {
-    // Load both resolutions once
-    auto base_symbols = load_symbols();
-
-    size_t total = lookbacks.size()   *
-                   divisors.size()    *
-                   tp_pips_vec.size() *
-                   sl_pips_vec.size();
+    auto base = load_symbols();
+    size_t total = entry_periods.size()
+                 * trigger_atr_mults.size()
+                 * tp_atr_mults.size()
+                 * sl_atr_mults.size();
 
     std::cout << "\n[backtest] Sweep: " << total << " combinations\n";
 
@@ -124,97 +97,85 @@ std::vector<BacktestRun> Backtest::sweep(
     std::vector<BacktestRun> runs;
     runs.reserve(total);
 
-    int run_num = 0;
-    for (int lb : lookbacks) {
-        for (double div : divisors) {
-            for (double tp : tp_pips_vec) {
-                for (double sl : sl_pips_vec) {
-                    ++run_num;
-
-                    BacktestConfig config;
-                    config.lookback         = lb;
-                    config.divisor          = div;
-                    config.take_profit_pips = tp;
-                    config.stop_loss_pips   = sl;
-                    config.lots             = lots;
+    int n = 0;
+    for (int ep : entry_periods) {
+        for (double trig_m : trigger_atr_mults) {
+            for (double tp_m : tp_atr_mults) {
+                for (double sl_m : sl_atr_mults) {
+                    ++n;
+                    BacktestConfig cfg;
+                    cfg.strategy_mode         = cfg_sweep_mode;
+                    cfg.entry_donchian_period = ep;
+                    cfg.atr_period            = atr_period;
+                    cfg.trigger_atr_mult      = trig_m;
+                    cfg.tp_atr_mult           = tp_m;
+                    cfg.sl_atr_mult           = sl_m;
+                    cfg.lots                  = lots;
+                    cfg.max_trades_per_day    = max_trades_per_day;
 
                     std::string label =
-                        "lb"  + std::to_string(lb) +
-                        "_d"  + std::to_string(static_cast<int>(div * 10)) +
-                        "_tp" + std::to_string(static_cast<int>(tp)) +
-                        "_sl" + std::to_string(static_cast<int>(sl));
+                        "ep"   + std::to_string(ep) +
+                        "_tr"  + std::to_string(static_cast<int>(trig_m * 100)) +
+                        "_tp"  + std::to_string(static_cast<int>(tp_m  * 10)) +
+                        "_sl"  + std::to_string(static_cast<int>(sl_m  * 10));
 
-                    std::cout << "[backtest] Run " << run_num
-                              << "/" << total
-                              << " — " << label << "\n";
+                    std::cout << "[backtest] " << n << "/" << total
+                              << " " << label << "\n";
 
-                    auto symbols = fresh_copy(base_symbols);
-                    auto result  = run_simulation(symbols, config, initial_equity_);
-                    auto stats   = compute_stats(result);
-                    auto run_id  = writer.save(result, stats, config, label);
+                    auto syms   = fresh_copy(base);
+                    auto result = run_simulation(syms, cfg, initial_equity_);
+                    auto stats  = compute_stats(result);
+                    auto run_id = writer.save(result, stats, cfg, label);
 
                     runs.push_back(BacktestRun{
-                        run_id, config,
-                        std::move(result),
-                        std::move(stats)
-                    });
+                        run_id, cfg, std::move(result), std::move(stats) });
                 }
             }
         }
     }
 
     std::sort(runs.begin(), runs.end(),
-        [](const BacktestRun& a, const BacktestRun& b) {
+        [](const auto& a, const auto& b) {
             return a.stats.sharpe_ratio > b.stats.sharpe_ratio;
         });
 
     return runs;
 }
 
-// ─────────────────────────────────────────────
-//  print_leaderboard
-// ─────────────────────────────────────────────
-
 void Backtest::print_leaderboard(
     const std::vector<BacktestRun>& runs,
     int                             top_n)
 {
     int n = std::min(top_n, static_cast<int>(runs.size()));
-
-    std::cout << "\n";
-    std::cout << "══════════════════════════════════════════════════════════════\n";
+    std::cout << "\n" << std::string(72, '=') << "\n";
     std::cout << "  SWEEP LEADERBOARD  (top " << n << " by Sharpe)\n";
-    std::cout << "══════════════════════════════════════════════════════════════\n";
+    std::cout << std::string(72, '=') << "\n";
     std::cout << std::left
-              << std::setw(6)  << "Rank"
-              << std::setw(12) << "Sharpe"
-              << std::setw(12) << "Net P&L"
-              << std::setw(8)  << "WinRate"
-              << std::setw(8)  << "PF"
-              << std::setw(8)  << "LB"
-              << std::setw(8)  << "Div"
-              << std::setw(8)  << "TP"
-              << std::setw(8)  << "SL"
-              << "\n";
-    std::cout << "──────────────────────────────────────────────────────────────\n";
+        << std::setw(6)  << "Rank"
+        << std::setw(10) << "Sharpe"
+        << std::setw(12) << "Net P&L"
+        << std::setw(8)  << "WinRate"
+        << std::setw(8)  << "PF"
+        << std::setw(8)  << "Entry"
+        << std::setw(8)  << "Trig"
+        << std::setw(8)  << "TP"
+        << std::setw(8)  << "SL"
+        << "\n";
+    std::cout << std::string(76, '-') << "\n";
 
     for (int i = 0; i < n; ++i) {
         const auto& r = runs[i];
-        const auto& s = r.stats;
-        const auto& c = r.config;
-
-        std::cout << std::left  << std::fixed
-                  << std::setw(6)  << (i + 1)
-                  << std::setw(12) << std::setprecision(3) << s.sharpe_ratio
-                  << std::setw(12) << std::setprecision(2) << s.net_pnl
-                  << std::setw(8)  << std::setprecision(1) << s.win_rate * 100.0
-                  << std::setw(8)  << std::setprecision(2) << s.profit_factor
-                  << std::setw(8)  << c.lookback
-                  << std::setw(8)  << std::setprecision(1) << c.divisor
-                  << std::setw(8)  << std::setprecision(0) << c.take_profit_pips
-                  << std::setw(8)  << std::setprecision(0) << c.stop_loss_pips
-                  << "\n";
+        std::cout << std::left << std::fixed
+            << std::setw(6)  << (i + 1)
+            << std::setw(10) << std::setprecision(3) << r.stats.sharpe_ratio
+            << std::setw(12) << std::setprecision(2) << r.stats.net_pnl
+            << std::setw(8)  << std::setprecision(1) << r.stats.win_rate * 100
+            << std::setw(8)  << std::setprecision(2) << r.stats.profit_factor
+            << std::setw(8)  << r.config.entry_donchian_period
+            << std::setw(8)  << std::setprecision(2) << r.config.trigger_atr_mult
+            << std::setw(8)  << std::setprecision(1) << r.config.tp_atr_mult
+            << std::setw(8)  << std::setprecision(1) << r.config.sl_atr_mult
+            << "\n";
     }
-
-    std::cout << "══════════════════════════════════════════════════════════════\n\n";
+    std::cout << std::string(72, '=') << "\n\n";
 }

@@ -1,82 +1,9 @@
 #include "simulation.hpp"
+#include "indicators.hpp"
 #include <cmath>
 #include <stdexcept>
-#include <iostream>
 #include <limits>
-
-// ─────────────────────────────────────────────
-//  compute_entry_threshold
-// ─────────────────────────────────────────────
-
-double compute_entry_threshold(
-    const Bar&  signal_bar,
-    Direction   direction,
-    double      trigger)
-{
-    if (direction == Direction::Long)
-        // Long: ask must cross ask_open + trigger
-        return signal_bar.ask_open + trigger;
-    else
-        // Short: bid must cross bid_open - trigger
-        return signal_bar.bid_open - trigger;
-}
-
-// ─────────────────────────────────────────────
-//  find_entry_bar
-// ─────────────────────────────────────────────
-
-int find_entry_bar(
-    const std::vector<Bar>& bars_1,
-    int                     start_idx,
-    int                     end_idx,
-    Direction               direction,
-    double                  threshold)
-{
-    for (int i = start_idx; i < end_idx; ++i) {
-        const Bar& b = bars_1[i];
-        if (direction == Direction::Long) {
-            if (b.ask_high >= threshold) return i;
-        } else {
-            if (b.bid_low  <= threshold) return i;
-        }
-    }
-    return -1; // threshold not reached within this 30-min window
-}
-
-// ─────────────────────────────────────────────
-//  find_exit_bar
-// ─────────────────────────────────────────────
-
-ExitResult find_exit_bar(
-    const std::vector<Bar>& bars_1,
-    int                     start_idx,
-    Direction               direction,
-    double                  take_profit,
-    double                  stop_loss)
-{
-    int n = static_cast<int>(bars_1.size());
-
-    for (int i = start_idx; i < n; ++i) {
-        const Bar& b = bars_1[i];
-
-        if (direction == Direction::Long) {
-            // SL checked before TP — conservative
-            if (b.bid_low  <= stop_loss)   return { i, ExitReason::StopLoss,   stop_loss   };
-            if (b.bid_high >= take_profit) return { i, ExitReason::TakeProfit, take_profit };
-        } else {
-            if (b.ask_high >= stop_loss)   return { i, ExitReason::StopLoss,   stop_loss   };
-            if (b.ask_low  <= take_profit) return { i, ExitReason::TakeProfit, take_profit };
-        }
-    }
-
-    // No exit found — close at last bar's close price
-    int last = n - 1;
-    double close_px = (direction == Direction::Long)
-        ? bars_1[last].bid_close
-        : bars_1[last].ask_close;
-
-    return { last, ExitReason::EndOfData, close_px };
-}
+#include <algorithm>
 
 // ─────────────────────────────────────────────
 //  compute_pnl
@@ -88,57 +15,21 @@ std::pair<double, double> compute_pnl(
     double                                        exit_price,
     const std::unordered_map<std::string,double>& rates)
 {
-    double direction_mult = (pos.direction == Direction::Long) ? 1.0 : -1.0;
-    double price_diff     = (exit_price - pos.entry_price) * direction_mult;
-    double raw_pnl        = price_diff * instrument.lot_size * pos.lots;
+    double mult    = (pos.direction == Direction::Long) ? 1.0 : -1.0;
+    double raw_pnl = (exit_price - pos.entry_price)
+                   * mult * instrument.lot_size * pos.lots;
 
     double pnl_usd;
-    const std::string& profit_ccy = instrument.profit_ccy;
-
-    if (profit_ccy == "USD") {
+    if (instrument.profit_ccy == "USD") {
         pnl_usd = raw_pnl;
     } else {
-        std::string rate_key = "USD" + profit_ccy;
-        auto it = rates.find(rate_key);
+        auto it = rates.find("USD" + instrument.profit_ccy);
         if (it == rates.end() || it->second == 0.0)
-            throw std::runtime_error("Missing FX rate: " + rate_key);
+            throw std::runtime_error(
+                "Missing FX rate: USD" + instrument.profit_ccy);
         pnl_usd = raw_pnl / it->second;
     }
-
     return { raw_pnl, pnl_usd };
-}
-
-// ─────────────────────────────────────────────
-//  find_1min_range
-//  Returns [start_idx, end_idx) of 1-min bars
-//  that fall within a given 30-min bar's window.
-//
-//  30-min bar_time is the window open (inclusive).
-//  Window closes 30 minutes later (exclusive).
-//
-//  Uses binary search for efficiency.
-// ─────────────────────────────────────────────
-
-static std::pair<int,int> find_1min_range(
-    const std::vector<Bar>& bars_1,
-    long long               bar_30_open_epoch,  // Unix seconds
-    int                     hint_start = 0)     // search from here
-{
-    long long window_end = bar_30_open_epoch + 30 * 60;
-
-    int n = static_cast<int>(bars_1.size());
-    int start = hint_start;
-
-    // Advance start to first 1-min bar >= bar_30_open_epoch
-    while (start < n && bars_1[start].timestamp < bar_30_open_epoch)
-        ++start;
-
-    // Advance end to first 1-min bar >= window_end
-    int end = start;
-    while (end < n && bars_1[end].timestamp < window_end)
-        ++end;
-
-    return { start, end };
 }
 
 // ─────────────────────────────────────────────
@@ -147,14 +38,180 @@ static std::pair<int,int> find_1min_range(
 
 static std::unordered_map<std::string,double> build_rates_map(
     const std::vector<SymbolData>& symbols,
-    int                            bar_30_idx)
+    int                            sub_idx)
 {
     std::unordered_map<std::string,double> rates;
-    for (const auto& s : symbols) {
-        if (bar_30_idx < static_cast<int>(s.bars_30.size()))
-            rates[s.instrument.symbol] = s.bars_30[bar_30_idx].mid_close();
-    }
+    for (const auto& s : symbols)
+        if (sub_idx < static_cast<int>(s.bars_sub.size()))
+            rates[s.instrument.symbol] = s.bars_sub[sub_idx].mid_close();
     return rates;
+}
+
+// ─────────────────────────────────────────────
+//  find_daily_idx_for_sub
+// ─────────────────────────────────────────────
+
+static int find_daily_idx_for_sub(
+    const std::vector<Bar>& bars_daily,
+    long long               sub_ts,
+    int                     hint)
+{
+    int n = static_cast<int>(bars_daily.size());
+    int i = std::max(0, hint);
+    while (i + 1 < n && bars_daily[i + 1].timestamp <= sub_ts)
+        ++i;
+    return i;
+}
+
+// ─────────────────────────────────────────────
+//  close_position
+// ─────────────────────────────────────────────
+
+static Trade close_position(
+    SymbolData&                                   sym,
+    double                                        exit_price,
+    ExitReason                                    reason,
+    int                                           exit_sub_idx,
+    const std::unordered_map<std::string,double>& rates)
+{
+    auto& pos = *sym.open_position;
+    auto [raw, usd] = compute_pnl(pos, sym.instrument, exit_price, rates);
+
+    Trade t;
+    t.symbol        = sym.instrument.symbol;
+    t.direction     = pos.direction;
+    t.mode          = pos.mode;
+    t.lots          = pos.lots;
+    t.entry_price   = pos.entry_price;
+    t.exit_price    = exit_price;
+    t.exit_reason   = reason;
+    t.entry_time    = pos.entry_time;
+    t.exit_time     = sym.bars_sub[exit_sub_idx].timestamp;
+    t.entry_day_idx = pos.entry_day_idx;
+    t.entry_sub_idx = pos.entry_sub_idx;
+    t.exit_sub_idx  = exit_sub_idx;
+    t.raw_pnl       = raw;
+    t.pnl_usd       = usd;
+
+    sym.open_position.reset();
+    return t;
+}
+
+// ─────────────────────────────────────────────
+//  compute_tp_sl
+// ─────────────────────────────────────────────
+
+static std::pair<double,double> compute_tp_sl(
+    Direction direction,
+    double    entry,
+    double    atr,
+    double    tp_mult,
+    double    sl_mult)
+{
+    if (direction == Direction::Long)
+        return { entry + tp_mult * atr, entry - sl_mult * atr };
+    else
+        return { entry - tp_mult * atr, entry + sl_mult * atr };
+}
+
+// ─────────────────────────────────────────────
+//  arm_pending
+//  Computes threshold and TP/SL for a pending
+//  entry and sets it active.
+// ─────────────────────────────────────────────
+
+static void arm_pending(
+    PendingEntry& p,
+    StrategyMode  mode,
+    Direction     breakout_dir,   // raw breakout direction
+    double        channel_level,  // upper or lower channel boundary
+    double        atr,
+    double        trigger_mult,
+    double        tp_mult,
+    double        sl_mult)
+{
+    Direction trade_dir;
+    double    threshold;
+
+    if (mode == StrategyMode::MeanReversion) {
+        // Fade the breakout
+        // Long breakout → SHORT trade → trigger BELOW the high
+        // Short breakout → LONG trade → trigger ABOVE the low
+        trade_dir = (breakout_dir == Direction::Long)
+            ? Direction::Short : Direction::Long;
+        threshold = (breakout_dir == Direction::Long)
+            ? channel_level - trigger_mult * atr   // below high
+            : channel_level + trigger_mult * atr;  // above low
+    } else {
+        // Follow the breakout (TrendContinuation)
+        // Long breakout → LONG trade → trigger ABOVE the high
+        // Short breakout → SHORT trade → trigger BELOW the low
+        trade_dir = breakout_dir;
+        threshold = (breakout_dir == Direction::Long)
+            ? channel_level + trigger_mult * atr   // above high
+            : channel_level - trigger_mult * atr;  // below low
+    }
+
+    auto [tp, sl] = compute_tp_sl(trade_dir, threshold, atr, tp_mult, sl_mult);
+
+    p.active    = true;
+    p.direction = trade_dir;
+    p.mode      = mode;
+    p.tp        = tp;
+    p.sl        = sl;
+    p.threshold = threshold;
+}
+
+// ─────────────────────────────────────────────
+//  try_execute
+//  Checks if bar crosses pending threshold and
+//  executes if so. Returns true if executed.
+// ─────────────────────────────────────────────
+
+static bool try_execute(
+    PendingEntry&         p,
+    const Bar&            bar,
+    const Instrument&     instr,
+    const BacktestConfig& cfg,
+    long long             ts,
+    int                   today_idx,
+    int                   b,
+    SymbolData&           sym)
+{
+    if (!p.active) return false;
+
+    // Long: price rose to/through threshold (bar high >= threshold)
+    // Short: price fell to/through threshold (bar low <= threshold)
+    bool triggered = (p.direction == Direction::Long)
+        ? (bar.bid_high >= p.threshold)
+        : (bar.bid_low  <= p.threshold);
+
+    if (!triggered) return false;
+
+    // Fill at threshold ± spread
+    double spread   = instr.spread_pips * instr.pip_size;
+    double entry_px = (p.direction == Direction::Long)
+        ? p.threshold + spread
+        : p.threshold - spread;
+
+    // Shift TP/SL by spread offset
+    double offset = entry_px - p.threshold;
+
+    sym.open_position = OpenPosition{
+        instr.symbol,
+        p.direction,
+        p.mode,
+        cfg.lots,
+        entry_px,
+        p.tp + offset,
+        p.sl + offset,
+        ts,
+        today_idx,
+        b
+    };
+
+    p.active = false;
+    return true;
 }
 
 // ─────────────────────────────────────────────
@@ -169,198 +226,194 @@ SimulationResult run_simulation(
     if (symbols.empty())
         throw std::invalid_argument("No symbols provided");
 
-    int num_bars_30 = std::numeric_limits<int>::max();
+    int num_sub = std::numeric_limits<int>::max();
     for (const auto& s : symbols)
-        num_bars_30 = std::min(num_bars_30, static_cast<int>(s.bars_30.size()));
-    if (num_bars_30 == 0)
-        throw std::invalid_argument("No bar data");
+        num_sub = std::min(num_sub, static_cast<int>(s.bars_sub.size()));
+    if (num_sub == 0)
+        throw std::invalid_argument("No sub-bar data");
+
+    int n_sym = static_cast<int>(symbols.size());
+
+    // Precompute Donchian channels on daily bars
+    std::vector<std::vector<DonchianPoint>> entry_ch(n_sym);
+    for (int si = 0; si < n_sym; ++si)
+        entry_ch[si] = compute_donchian(
+            symbols[si].bars_daily,
+            config.entry_donchian_period,
+            config.entry_donchian_period);
+
+    // Precompute ATR on daily bars
+    std::vector<std::vector<double>> atr_series(n_sym);
+    for (int si = 0; si < n_sym; ++si)
+        atr_series[si] = compute_atr(
+            symbols[si].bars_daily,
+            config.atr_period);
+
+    // Reset runtime state
+    for (auto& s : symbols) {
+        s.open_position = std::nullopt;
+        s.trades_today  = 0;
+        s.pending_mr    = {};
+        s.pending_trend = {};
+    }
 
     SimulationResult result;
     result.initial_equity = initial_equity;
     double equity = initial_equity;
 
-    // Per-symbol cursor into 1-min bars — avoids rescanning from 0 each bar
-    std::vector<int> cursor_1(symbols.size(), 0);
+    std::vector<int> day_cursor(n_sym, 0);
+    std::vector<int> last_day_idx(n_sym, -1);
 
-    for (int i = 0; i < num_bars_30; ++i) {
+    for (int b = 0; b < num_sub; ++b) {
         int open_count = 0;
-        auto rates     = build_rates_map(symbols, i);
+        auto rates = build_rates_map(symbols, b);
 
-        for (size_t s_idx = 0; s_idx < symbols.size(); ++s_idx) {
-            auto& sym          = symbols[s_idx];
-            const Bar& bar_30  = sym.bars_30[i];
-            long long  bar_ts  = bar_30.timestamp;
+        for (int si = 0; si < n_sym; ++si) {
+            auto&      sym  = symbols[si];
+            const Bar& bar  = sym.bars_sub[b];
+            long long  ts   = bar.timestamp;
 
-            // Find 1-min bars for this 30-min window
-            auto [m1_start, m1_end] = find_1min_range(
-                sym.bars_1, bar_ts, cursor_1[s_idx]);
-            cursor_1[s_idx] = m1_start; // advance cursor
+            // ── Advance daily cursor ───────────────────
+            day_cursor[si] = find_daily_idx_for_sub(
+                sym.bars_daily, ts, day_cursor[si]);
+            int today_idx = day_cursor[si];
 
-            // ── 1. Check exits on open position ───────────
+            // Reset on new day
+            if (today_idx != last_day_idx[si]) {
+                sym.trades_today  = 0;
+                sym.pending_mr    = {};
+                sym.pending_trend = {};
+                last_day_idx[si]  = today_idx;
+            }
+
+            // ── Execute pending entries ────────────────
+            // Both can be armed; first to trigger fires.
+            // After one fires, cancel the other.
+            if (!sym.open_position.has_value()
+                && sym.trades_today < config.max_trades_per_day)
+            {
+                bool fired = false;
+
+                // Check MR pending first
+                if (try_execute(sym.pending_mr, bar, sym.instrument,
+                                config, ts, today_idx, b, sym))
+                {
+                    ++sym.trades_today;
+                    sym.pending_trend = {};  // cancel other
+                    fired = true;
+                }
+
+                // Check Trend pending if MR didn't fire
+                if (!fired && try_execute(sym.pending_trend, bar,
+                                sym.instrument, config, ts, today_idx, b, sym))
+                {
+                    ++sym.trades_today;
+                    sym.pending_mr = {};     // cancel other
+                }
+            }
+
+            // ── Check exits on open position ──────────
             if (sym.open_position.has_value()) {
                 ++open_count;
                 auto& pos = *sym.open_position;
+                double tp = pos.take_profit;
+                double sl = pos.stop_loss;
 
-                // Scan 1-min bars in this window for TP/SL
-                ExitResult ex = find_exit_bar(
-                    sym.bars_1,
-                    m1_start,
-                    pos.direction,
-                    pos.take_profit,
-                    pos.stop_loss);
+                ExitReason reason;
+                double     exit_px = 0.0;
+                bool       do_exit = false;
 
-                // Only close if exit found within this window
-                // (EndOfData exit handled at end of simulation)
-                bool in_window = (ex.bar_idx >= m1_start &&
-                                  ex.bar_idx <  m1_end);
-                bool end_reached = (ex.reason == ExitReason::EndOfData);
+                if (pos.direction == Direction::Long) {
+                    if (bar.bid_low  <= sl) {
+                        reason = ExitReason::StopLoss;
+                        exit_px = sl; do_exit = true;
+                    } else if (bar.bid_high >= tp) {
+                        reason = ExitReason::TakeProfit;
+                        exit_px = tp; do_exit = true;
+                    }
+                } else {
+                    if (bar.bid_high >= sl) {
+                        reason = ExitReason::StopLoss;
+                        exit_px = sl; do_exit = true;
+                    } else if (bar.bid_low <= tp) {
+                        reason = ExitReason::TakeProfit;
+                        exit_px = tp; do_exit = true;
+                    }
+                }
 
-                if (in_window || end_reached) {
-                    // Recompute rates at exit bar if possible
-                    auto exit_rates = rates;
-
-                    auto [raw, usd] = compute_pnl(
-                        pos, sym.instrument, ex.price, exit_rates);
-
-                    Trade trade;
-                    trade.symbol       = sym.instrument.symbol;
-                    trade.direction    = pos.direction;
-                    trade.lots         = pos.lots;
-                    trade.entry_price  = pos.entry_price;
-                    trade.exit_price   = ex.price;
-                    trade.exit_reason  = ex.reason;
-                    trade.entry_time   = pos.entry_time;
-                    trade.exit_time    = (ex.bar_idx >= 0 && ex.bar_idx < static_cast<int>(sym.bars_1.size()))
-                                         ? sym.bars_1[ex.bar_idx].timestamp
-                                         : bar_ts;
-                    trade.entry_bar    = pos.entry_bar_30;
-                    trade.exit_bar     = i;
-                    trade.raw_pnl      = raw;
-                    trade.pnl_usd      = usd;
-
-                    equity += usd;
-                    result.trades.push_back(trade);
-                    sym.open_position.reset();
+                if (do_exit) {
+                    auto trade = close_position(sym, exit_px, reason, b, rates);
+                    equity += trade.pnl_usd;
+                    result.trades.push_back(std::move(trade));
                 }
             }
 
-            // ── 2. Check for new signal ────────────────────
-            if (!sym.open_position.has_value() &&
-                i >= config.lookback &&
-                i + 1 < num_bars_30)
+            // ── Arm new pending entries on signal ─────
+            if (!sym.open_position.has_value()
+                && sym.trades_today < config.max_trades_per_day
+                && b + 1 < num_sub)
             {
-                // Spread filter on current bar
-                if (!spread_ok(bar_30, sym.instrument))
-                    continue;
+                int prev_day = today_idx - 1;
+                if (prev_day >= 0
+                    && entry_ch[si][prev_day].valid
+                    && atr_series[si][prev_day] > 0.0)
+                {
+                    auto sig = donchian_signal(
+                        sym.bars_daily,
+                        entry_ch[si],
+                        prev_day);
 
-                auto sig = detect_signal(
-                    sym.bars_30, i,
-                    config.lookback,
-                    config.divisor);
+                    if (sig.has_value()) {
+                        double atr = atr_series[si][prev_day];
 
-                if (!sig.has_value()) continue;
+                        // Channel level that was broken
+                        double level = (*sig == Direction::Long)
+                            ? entry_ch[si][prev_day].upper
+                            : entry_ch[si][prev_day].lower;
 
-                // Compute trigger distance and threshold price
-                double max_body = 0.0;
-                for (int j = i - config.lookback; j < i; ++j)
-                    max_body = std::max(max_body, sym.bars_30[j].bid_body());
+                        bool do_mr    = (config.strategy_mode == StrategyMode::MeanReversion
+                                      || config.strategy_mode == StrategyMode::Both);
+                        bool do_trend = (config.strategy_mode == StrategyMode::TrendContinuation
+                                      || config.strategy_mode == StrategyMode::Both);
 
-                double trigger   = max_body + (max_body / config.divisor);
-                double threshold = compute_entry_threshold(
-                    bar_30, *sig, trigger);
+                        if (do_mr && !sym.pending_mr.active)
+                            arm_pending(sym.pending_mr,
+                                StrategyMode::MeanReversion,
+                                *sig, level, atr,
+                                config.trigger_atr_mult,
+                                config.tp_atr_mult,
+                                config.sl_atr_mult);
 
-                // ── Lookahead fix ──────────────────────────────
-                // Signal fires on bar i CLOSE.
-                // Scan 1-min bars in bar i+1's window — not bar i.
-                // This ensures we only use information available
-                // after bar i has fully closed.
-                long long next_bar_ts = sym.bars_30[i + 1].timestamp;
-                auto [next_start, next_end] = find_1min_range(
-                    sym.bars_1, next_bar_ts, m1_end);
-
-                int entry_idx = find_entry_bar(
-                    sym.bars_1, next_start, next_end, *sig, threshold);
-
-                if (entry_idx < 0) continue; // threshold not reached in i+1
-
-                // Entry at CLOSE of the crossing 1-min bar.
-                // Long fills at ask_close, short fills at bid_close.
-                double entry_price = (*sig == Direction::Long)
-                    ? sym.bars_1[entry_idx].ask_close
-                    : sym.bars_1[entry_idx].bid_close;
-
-                // Compute TP/SL from entry
-                double pip     = sym.instrument.pip_size;
-                double tp_dist = config.take_profit_pips * pip;
-                double sl_dist = config.stop_loss_pips   * pip;
-
-                double tp, sl;
-                if (*sig == Direction::Long) {
-                    tp = entry_price + tp_dist;
-                    sl = entry_price - sl_dist;
-                } else {
-                    tp = entry_price - tp_dist;
-                    sl = entry_price + sl_dist;
+                        if (do_trend && !sym.pending_trend.active)
+                            arm_pending(sym.pending_trend,
+                                StrategyMode::TrendContinuation,
+                                *sig, level, atr,
+                                config.trigger_atr_mult,
+                                config.tp_atr_mult,
+                                config.sl_atr_mult);
+                    }
                 }
-
-                sym.open_position = OpenPosition{
-                    sym.instrument.symbol,
-                    *sig,
-                    config.lots,
-                    entry_price,
-                    tp,
-                    sl,
-                    sym.bars_1[entry_idx].timestamp,
-                    i,
-                    entry_idx
-                };
             }
         } // end symbol loop
 
-        // ── 3. Snapshot equity ────────────────────────────
         result.equity_curve.push_back(EquityPoint{
-            symbols[0].bars_30[i].timestamp,
+            symbols[0].bars_sub[b].timestamp,
             equity,
             open_count
         });
     }
 
-    // ─────────────────────────────────────────
-    //  Force-close any positions still open
-    //  at end of data
-    // ─────────────────────────────────────────
-    auto rates = build_rates_map(symbols, num_bars_30 - 1);
-
+    // Force-close at end of data
+    auto rates = build_rates_map(symbols, num_sub - 1);
     for (auto& sym : symbols) {
         if (!sym.open_position.has_value()) continue;
-
-        auto& pos       = *sym.open_position;
-        const Bar& last = sym.bars_1.back();
-
-        double close_px = (pos.direction == Direction::Long)
-            ? last.bid_close
-            : last.ask_close;
-
-        auto [raw, usd] = compute_pnl(
-            pos, sym.instrument, close_px, rates);
-
-        Trade trade;
-        trade.symbol      = sym.instrument.symbol;
-        trade.direction   = pos.direction;
-        trade.lots        = pos.lots;
-        trade.entry_price = pos.entry_price;
-        trade.exit_price  = close_px;
-        trade.exit_reason = ExitReason::EndOfData;
-        trade.entry_time  = pos.entry_time;
-        trade.exit_time   = last.timestamp;
-        trade.entry_bar   = pos.entry_bar_30;
-        trade.exit_bar    = num_bars_30 - 1;
-        trade.raw_pnl     = raw;
-        trade.pnl_usd     = usd;
-
-        equity += usd;
-        result.trades.push_back(trade);
-        sym.open_position.reset();
+        const Bar& last = sym.bars_sub.back();
+        double close_px = (sym.open_position->direction == Direction::Long)
+            ? last.bid_close : last.ask_close;
+        auto trade = close_position(
+            sym, close_px, ExitReason::EndOfData, num_sub - 1, rates);
+        equity += trade.pnl_usd;
+        result.trades.push_back(std::move(trade));
     }
 
     result.final_equity = equity;

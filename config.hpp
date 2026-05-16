@@ -2,53 +2,37 @@
 
 #include "types.hpp"
 #include "database.hpp"
+#include "wfo.hpp"
 #include <string>
 #include <vector>
 
-// ─────────────────────────────────────────────
-//  SweepConfig
-//  Parameter vectors for a sweep run
-// ─────────────────────────────────────────────
-
 struct SweepConfig {
-    std::vector<int>    lookbacks;
-    std::vector<double> divisors;
-    std::vector<double> tp_pips;
-    std::vector<double> sl_pips;
-    double              lots = 0.1;
+    StrategyMode        strategy_mode = StrategyMode::MeanReversion;
+    std::vector<int>    entry_periods;
+    std::vector<double> trigger_atr_mults;
+    std::vector<double> tp_atr_mults;
+    std::vector<double> sl_atr_mults;
+    int                 atr_period         = 14;
+    int                 max_trades_per_day = 3;
+    double              lots               = 0.1;
 };
 
-// ─────────────────────────────────────────────
-//  AppConfig
-//  Everything loaded from config.toml
-// ─────────────────────────────────────────────
-
 struct AppConfig {
-    // Database
     DatabaseConfig db;
 
-    // Data paths and date range
-    std::string parquet_30;
-    std::string parquet_1min;
+    std::string parquet_daily;
+    std::string parquet_sub;
     std::string start_date;
     std::string end_date;
+    int         sub_bar_minutes = 30;
 
-    // Account
     double initial_equity = 10000.0;
 
-    // Single run
     BacktestConfig single;
     std::string    single_label;
 
-    // Sweep
     SweepConfig sweep;
+    WFOConfig   wfo;
 };
-
-// ─────────────────────────────────────────────
-//  load_config
-//  Reads config.toml and returns AppConfig.
-//  Throws std::runtime_error if file not found
-//  or required keys are missing.
-// ─────────────────────────────────────────────
 
 AppConfig load_config(const std::string& path = "config.toml");

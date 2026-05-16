@@ -19,14 +19,15 @@ find_package(tomlplusplus CONFIG REQUIRED)
 
 add_executable(backtest
     main.cpp
+    types.cpp
     config.cpp
     signal.cpp
     simulation.cpp
     database.cpp
     indicators.cpp
     stats.cpp
-    save_results.cpp
     backtest.cpp
+    wfo.cpp
 )
 
 # ─────────────────────────────────────────────
@@ -41,15 +42,17 @@ target_include_directories(backtest PRIVATE
 #  Link libraries
 # ─────────────────────────────────────────────
 
-if(MSVC)
-    target_link_options(backtest PRIVATE /FORCE:MULTIPLE)
-endif()
-
 target_link_libraries(backtest PRIVATE
     libpqxx::pqxx
     duckdb
     tomlplusplus::tomlplusplus
 )
+
+# pqxx.dll re-exports inline std::basic_string_view ctors that also live
+# in our own .obj files — harmless duplicate, ignore at link time.
+if(MSVC)
+    target_link_options(backtest PRIVATE /FORCE:MULTIPLE)
+endif()
 
 # ─────────────────────────────────────────────
 #  MSVC compiler flags

@@ -70,9 +70,9 @@ StatsResult compute_stats(const SimulationResult& result) {
             ++stats.breakeven_trades;
         }
 
-        stats.avg_duration_bars += t.duration_bars();
+        stats.avg_duration_bars += (t.exit_sub_idx - t.entry_sub_idx);
         stats.max_duration_bars  = std::max(
-            stats.max_duration_bars, t.duration_bars());
+            stats.max_duration_bars, (t.exit_sub_idx - t.entry_sub_idx));
 
         // Per-symbol accumulation
         auto& ss   = sym_map[t.symbol];

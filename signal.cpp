@@ -41,5 +41,5 @@ bool spread_ok(
     const Instrument& instrument)
 {
     double spread_pips = bar.spread() / instrument.pip_size;
-    return spread_pips <= instrument.max_spread_pips;
+    return spread_pips <= instrument.spread_pips;
 }
