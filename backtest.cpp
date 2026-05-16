@@ -12,10 +12,14 @@
 
 Backtest::Backtest(
     const DatabaseConfig& db_config,
+    const std::string&    parquet_30,
+    const std::string&    parquet_1,
     const std::string&    start_date,
     const std::string&    end_date,
     double                initial_equity)
     : db_config_      (db_config)
+    , parquet_30_     (parquet_30)
+    , parquet_1_      (parquet_1)
     , start_date_     (start_date)
     , end_date_       (end_date)
     , initial_equity_ (initial_equity)
@@ -23,43 +27,42 @@ Backtest::Backtest(
 
 // ─────────────────────────────────────────────
 //  load_symbols
-//  Loads bar data from DB once and caches it.
-//  Subsequent calls return the cached data.
 // ─────────────────────────────────────────────
 
-std::vector<SymbolState> Backtest::load_symbols() {
-    Database db(db_config_);
-    auto symbols = db.load_all_symbols(start_date_, end_date_);
+std::vector<SymbolData> Backtest::load_symbols() {
+    BarLoader loader(parquet_30_, parquet_1_);
+    auto symbols = loader.load_all_symbols(start_date_, end_date_);
 
     if (symbols.empty())
-        throw std::runtime_error("No bar data loaded — check date range and DB");
+        throw std::runtime_error(
+            "No bar data loaded — check Parquet paths and date range");
 
     std::cout << "[backtest] Loaded " << symbols.size()
-              << " symbols, " << symbols[0].bars.size()
-              << " bars each\n";
+              << " symbols\n"
+              << "[backtest] 30-min bars: " << symbols[0].bars_30.size() << "\n"
+              << "[backtest]  1-min bars: " << symbols[0].bars_1.size()  << "\n";
 
     return symbols;
 }
 
 // ─────────────────────────────────────────────
 //  fresh_copy
-//  Returns a deep copy of SymbolStates with
-//  all open positions cleared so each run
-//  starts from a clean slate without
-//  reloading bar data from the database.
+//  Deep copy of SymbolData — bars shared,
+//  open positions reset for each sweep run
 // ─────────────────────────────────────────────
 
-std::vector<SymbolState> Backtest::fresh_copy(
-    const std::vector<SymbolState>& source)
+std::vector<SymbolData> Backtest::fresh_copy(
+    const std::vector<SymbolData>& source)
 {
-    std::vector<SymbolState> copy;
+    std::vector<SymbolData> copy;
     copy.reserve(source.size());
 
     for (const auto& s : source) {
-        SymbolState fresh;
+        SymbolData fresh;
         fresh.instrument    = s.instrument;
-        fresh.bars          = s.bars;        // shared read-only data
-        fresh.open_position = std::nullopt;  // always start flat
+        fresh.bars_30       = s.bars_30;    // shared read-only data
+        fresh.bars_1        = s.bars_1;
+        fresh.open_position = std::nullopt;
         copy.push_back(std::move(fresh));
     }
 
@@ -68,34 +71,25 @@ std::vector<SymbolState> Backtest::fresh_copy(
 
 // ─────────────────────────────────────────────
 //  run
-//  Single backtest run:
-//    load → simulate → stats → save → return
 // ─────────────────────────────────────────────
 
 BacktestRun Backtest::run(
     const BacktestConfig& config,
     const std::string&    label)
 {
-    std::cout << "\n[backtest] Starting run: " << label << "\n";
-    std::cout << "[backtest] lookback=" << config.lookback
+    std::cout << "\n[backtest] Starting run: " << label << "\n"
+              << "[backtest] lookback=" << config.lookback
               << " divisor="           << config.divisor
               << " tp="                << config.take_profit_pips
               << " sl="                << config.stop_loss_pips
               << " lots="              << config.lots << "\n";
 
-    // Load bars
     auto symbols = load_symbols();
+    auto result  = run_simulation(symbols, config, initial_equity_);
+    auto stats   = compute_stats(result);
 
-    // Simulate
-    auto result = run_simulation(symbols, config, initial_equity_);
-
-    // Stats
-    auto stats = compute_stats(result);
-
-    // Print summary
     print_stats(stats);
 
-    // Save to DB
     ResultWriter writer(db_config_);
     writer.create_tables();
     std::string run_id = writer.save(result, stats, config, label);
@@ -105,9 +99,6 @@ BacktestRun Backtest::run(
 
 // ─────────────────────────────────────────────
 //  sweep
-//  Runs all combinations of the provided
-//  parameter vectors. Bar data is loaded once
-//  and reused across all runs.
 // ─────────────────────────────────────────────
 
 std::vector<BacktestRun> Backtest::sweep(
@@ -117,18 +108,16 @@ std::vector<BacktestRun> Backtest::sweep(
     const std::vector<double>& sl_pips_vec,
     double                     lots)
 {
-    // Load bars once
+    // Load both resolutions once
     auto base_symbols = load_symbols();
 
-    // Count total combinations
-    size_t total = lookbacks.size()  *
-                   divisors.size()   *
-                   tp_pips_vec.size()*
+    size_t total = lookbacks.size()   *
+                   divisors.size()    *
+                   tp_pips_vec.size() *
                    sl_pips_vec.size();
 
     std::cout << "\n[backtest] Sweep: " << total << " combinations\n";
 
-    // Set up result writer once
     ResultWriter writer(db_config_);
     writer.create_tables();
 
@@ -143,15 +132,14 @@ std::vector<BacktestRun> Backtest::sweep(
                     ++run_num;
 
                     BacktestConfig config;
-                    config.lookback          = lb;
-                    config.divisor           = div;
-                    config.take_profit_pips  = tp;
-                    config.stop_loss_pips    = sl;
-                    config.lots              = lots;
+                    config.lookback         = lb;
+                    config.divisor          = div;
+                    config.take_profit_pips = tp;
+                    config.stop_loss_pips   = sl;
+                    config.lots             = lots;
 
-                    // Label encodes the parameters
                     std::string label =
-                        "lb"  + std::to_string(lb)  +
+                        "lb"  + std::to_string(lb) +
                         "_d"  + std::to_string(static_cast<int>(div * 10)) +
                         "_tp" + std::to_string(static_cast<int>(tp)) +
                         "_sl" + std::to_string(static_cast<int>(sl));
@@ -160,7 +148,6 @@ std::vector<BacktestRun> Backtest::sweep(
                               << "/" << total
                               << " — " << label << "\n";
 
-                    // Fresh copy of bars — no DB reload needed
                     auto symbols = fresh_copy(base_symbols);
                     auto result  = run_simulation(symbols, config, initial_equity_);
                     auto stats   = compute_stats(result);
@@ -176,7 +163,6 @@ std::vector<BacktestRun> Backtest::sweep(
         }
     }
 
-    // Sort by Sharpe descending
     std::sort(runs.begin(), runs.end(),
         [](const BacktestRun& a, const BacktestRun& b) {
             return a.stats.sharpe_ratio > b.stats.sharpe_ratio;

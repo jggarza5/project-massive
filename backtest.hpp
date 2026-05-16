@@ -35,6 +35,8 @@ class Backtest {
 public:
     Backtest(
         const DatabaseConfig& db_config,
+        const std::string&    parquet_30,     // 30-min bars
+        const std::string&    parquet_1,      // 1-min bars
         const std::string&    start_date,
         const std::string&    end_date,
         double                initial_equity = 10000.0);
@@ -44,8 +46,7 @@ public:
         const BacktestConfig& config,
         const std::string&    label = "");
 
-    // Sweep over all combinations of the provided
-    // parameter vectors and run each one.
+    // Sweep over all combinations of parameter vectors.
     // Returns all runs sorted by Sharpe descending.
     std::vector<BacktestRun> sweep(
         const std::vector<int>&    lookbacks,
@@ -54,24 +55,22 @@ public:
         const std::vector<double>& sl_pips,
         double                     lots = 0.1);
 
-    // Print a leaderboard of sweep results to stdout
+    // Print leaderboard of sweep results
     static void print_leaderboard(
         const std::vector<BacktestRun>& runs,
         int                             top_n = 10);
 
 private:
     DatabaseConfig db_config_;
+    std::string    parquet_30_;
+    std::string    parquet_1_;
     std::string    start_date_;
     std::string    end_date_;
     double         initial_equity_;
 
-    // Cached bar data — loaded once, reused across sweep runs
-    std::vector<SymbolState> load_symbols();
-    bool                     bars_loaded_ = false;
-    std::vector<Bar>         cached_bars_; // raw cache per symbol handled below
+    std::vector<SymbolData> load_symbols();
 
-    // Deep copy of SymbolStates with open_position reset
-    // so each run starts clean without reloading from DB
-    static std::vector<SymbolState> fresh_copy(
-        const std::vector<SymbolState>& source);
+    // Deep copy with open positions cleared
+    static std::vector<SymbolData> fresh_copy(
+        const std::vector<SymbolData>& source);
 };

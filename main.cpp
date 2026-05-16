@@ -64,6 +64,8 @@ int main(int argc, char* argv[]) {
 
         Backtest bt(
             db_config,
+            "C:/code/python/forex-data/bars_2025.parquet",
+            "C:/code/python/forex-data/bars_2025_1min.parquet",
             "2025-01-01",   // start date (inclusive)
             "2026-01-01",   // end date   (exclusive)
             10000.0         // initial equity (USD)

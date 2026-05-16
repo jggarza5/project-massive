@@ -59,22 +59,6 @@ struct Instrument {
 };
 
 // ─────────────────────────────────────────────
-//  TradeSetup
-//  Computed at signal time before entry
-// ─────────────────────────────────────────────
-
-struct TradeSetup {
-    std::string symbol;
-    Direction   direction;
-    double      lots;           // fixed lot size from config
-    double      entry;          // ask_open (long) or bid_open (short)
-    double      take_profit;
-    double      stop_loss;
-    int         signal_bar;     // bar index where signal fired
-    int         entry_bar;      // bar index of actual entry (signal_bar + 1)
-};
-
-// ─────────────────────────────────────────────
 //  Trade
 //  Completed round-trip trade
 // ─────────────────────────────────────────────

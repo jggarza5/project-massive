@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ─────────────────────────────────────────────
 
 find_package(libpqxx CONFIG REQUIRED)
+find_package(DuckDB  CONFIG REQUIRED)
 
 # ─────────────────────────────────────────────
 #  Sources
@@ -40,6 +41,7 @@ target_include_directories(backtest PRIVATE
 
 target_link_libraries(backtest PRIVATE
     libpqxx::pqxx
+    duckdb
 )
 
 # ─────────────────────────────────────────────
