@@ -89,10 +89,8 @@ std::vector<BacktestRun> Backtest::sweep(
                  * tp_atr_mults.size()
                  * sl_atr_mults.size();
 
-    std::cout << "\n[backtest] Sweep: " << total << " combinations\n";
-
-    ResultWriter writer(db_config_);
-    writer.create_tables();
+    std::cout << "\n[backtest] Sweep: " << total << " combinations"
+              << " (results not persisted)\n";
 
     std::vector<BacktestRun> runs;
     runs.reserve(total);
@@ -125,10 +123,9 @@ std::vector<BacktestRun> Backtest::sweep(
                     auto syms   = fresh_copy(base);
                     auto result = run_simulation(syms, cfg, initial_equity_);
                     auto stats  = compute_stats(result);
-                    auto run_id = writer.save(result, stats, cfg, label);
 
                     runs.push_back(BacktestRun{
-                        run_id, cfg, std::move(result), std::move(stats) });
+                        label, cfg, std::move(result), std::move(stats) });
                 }
             }
         }

@@ -273,17 +273,22 @@ SimulationResult run_simulation(
             const Bar& bar  = sym.bars_sub[b];
             long long  ts   = bar.timestamp;
 
-            // ── Advance daily cursor ───────────────────
+            // ── Advance signal bar cursor ─────────────
             day_cursor[si] = find_daily_idx_for_sub(
                 sym.bars_daily, ts, day_cursor[si]);
             int today_idx = day_cursor[si];
 
-            // Reset on new day
-            if (today_idx != last_day_idx[si]) {
+            // Reset trades_today on actual calendar day boundary.
+            // Uses Unix epoch seconds ÷ 86400 — works correctly
+            // regardless of signal bar timeframe (daily, 4h, etc).
+            // For daily bars this is equivalent to today_idx changing.
+            // For 4h bars this prevents resetting every 4h period.
+            int cal_day = static_cast<int>(ts / 86400LL);
+            if (cal_day != last_day_idx[si]) {
                 sym.trades_today  = 0;
                 sym.pending_mr    = {};
                 sym.pending_trend = {};
-                last_day_idx[si]  = today_idx;
+                last_day_idx[si]  = cal_day;
             }
 
             // ── Execute pending entries ────────────────

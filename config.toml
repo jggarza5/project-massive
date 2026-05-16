@@ -1,6 +1,12 @@
 # ─────────────────────────────────────────────
 #  project-massive
-#  strategy_mode: "Mean-rev", "Trend", or "Both"
+#  4-hour signal bars / 5-min execution bars
+#  Entry periods approximate daily equivalents:
+#    48  bars × 4h = 8  trading days
+#    120 bars × 4h = 20 trading days
+#    240 bars × 4h = 40 trading days
+#  ATR period approximates 14-day daily ATR:
+#    84  bars × 4h = 14 trading days
 # ─────────────────────────────────────────────
 
 [database]
@@ -11,11 +17,11 @@ user     = "postgres"
 password = "password"
 
 [data]
-parquet_daily   = "C:/code/python/forex-data/daily_2009_2026.parquet"
-parquet_sub     = "C:/code/python/forex-data/sub_30min_2009_2026.parquet"
+parquet_daily   = "C:/code/python/forex-data/4hour_2009_2026.parquet"
+parquet_sub     = "C:/code/python/forex-data/sub_5min_2009_2026.parquet"
 start_date      = "2010-01-01"
 end_date        = "2026-01-01"
-sub_bar_minutes = 30
+sub_bar_minutes = 5
 
 [account]
 initial_equity = 10000.0
@@ -25,11 +31,11 @@ initial_equity = 10000.0
 # ─────────────────────────────────────────────
 
 [single]
-label                  = "mr_atr_trigger"
-strategy_mode          = "Mean-rev"   # "Mean-rev", "Trend", or "Both"
-entry_donchian_period  = 20
-atr_period             = 14
-trigger_atr_mult       = 0.25
+label                  = "4h_5min_trend"
+strategy_mode          = "Trend"
+entry_donchian_period  = 120
+atr_period             = 84
+trigger_atr_mult       = 1.0
 tp_atr_mult            = 1.0
 sl_atr_mult            = 2.0
 max_trades_per_day     = 3
@@ -40,15 +46,15 @@ lots                   = 0.1
 # ─────────────────────────────────────────────
 
 [wfo]
-strategy_mode      = "Mean-rev"   # fixed for the WFO run
+strategy_mode      = "Trend"
 is_days            = 252
 oos_days           = 63
 lots               = 0.1
 max_trades_per_day = 3
-atr_period         = 14
-entry_periods      = [10, 20, 40]
-trigger_atr_mults  = [0.1, 0.25, 0.5, 1.0]
-tp_atr_mults       = [0.5, 1.0, 1.5, 2.0]
+atr_period         = 84       # 14 trading day equivalent
+entry_periods      = [48, 120, 240]   # 8, 20, 40 day equivalents
+trigger_atr_mults  = [1.0, 2.0, 3.0]
+tp_atr_mults       = [1.0, 2.0, 3.0]
 sl_atr_mults       = [1.0, 2.0, 3.0]
 
 # ─────────────────────────────────────────────
@@ -56,11 +62,11 @@ sl_atr_mults       = [1.0, 2.0, 3.0]
 # ─────────────────────────────────────────────
 
 [sweep]
-strategy_mode      = "Mean-rev"
+strategy_mode      = "Trend"
 lots               = 0.1
 max_trades_per_day = 3
-atr_period         = 14
-entry_periods      = [10, 20, 40]
-trigger_atr_mults  = [0.1, 0.25, 0.5, 1.0]
-tp_atr_mults       = [0.5, 1.0, 1.5, 2.0]
+atr_period         = 84
+entry_periods      = [48, 120, 240]
+trigger_atr_mults  = [1.0, 2.0, 3.0]
+tp_atr_mults       = [1.0, 2.0, 3.0]
 sl_atr_mults       = [1.0, 2.0, 3.0]
