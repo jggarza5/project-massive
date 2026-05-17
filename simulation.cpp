@@ -251,11 +251,10 @@ SimulationResult run_simulation(
 
     // Reset runtime state
     for (auto& s : symbols) {
-        s.open_position          = std::nullopt;
-        s.trades_today           = 0;
-        s.signal_consumed_today  = false;
-        s.pending_mr             = {};
-        s.pending_trend          = {};
+        s.open_position = std::nullopt;
+        s.trades_today  = 0;
+        s.pending_mr    = {};
+        s.pending_trend = {};
     }
 
     SimulationResult result;
@@ -286,11 +285,10 @@ SimulationResult run_simulation(
             // For 4h bars this prevents resetting every 4h period.
             int cal_day = static_cast<int>(ts / 86400LL);
             if (cal_day != last_day_idx[si]) {
-                sym.trades_today          = 0;
-                sym.signal_consumed_today = false;
-                sym.pending_mr            = {};
-                sym.pending_trend         = {};
-                last_day_idx[si]          = cal_day;
+                sym.trades_today  = 0;
+                sym.pending_mr    = {};
+                sym.pending_trend = {};
+                last_day_idx[si]  = cal_day;
             }
 
             // ── Execute pending entries ────────────────
@@ -306,7 +304,6 @@ SimulationResult run_simulation(
                                 config, ts, today_idx, b, sym))
                 {
                     ++sym.trades_today;
-                    sym.signal_consumed_today = true;
                     sym.pending_trend = {};  // cancel other
                     fired = true;
                 }
@@ -316,7 +313,6 @@ SimulationResult run_simulation(
                                 sym.instrument, config, ts, today_idx, b, sym))
                 {
                     ++sym.trades_today;
-                    sym.signal_consumed_today = true;
                     sym.pending_mr = {};     // cancel other
                 }
             }
@@ -358,11 +354,14 @@ SimulationResult run_simulation(
             }
 
             // ── Arm new pending entries on signal ─────
-            // Guard: don't re-arm if this daily signal has already
-            // produced a trade today. Prevents the same signal from
-            // re-triggering after a fast TP/SL exit on the same bar.
+            // Arm whenever flat (market position == 0) and the daily
+            // signal on prev_day is valid. After a trade fires, the
+            // firing pending is set inactive by try_execute and the
+            // other is cleared on the cancel-other path, so both are
+            // inactive while the position is open. When the position
+            // closes, this block re-arms them at the same threshold
+            // on the next sub-bar — capped by max_trades_per_day.
             if (!sym.open_position.has_value()
-                && !sym.signal_consumed_today
                 && sym.trades_today < config.max_trades_per_day
                 && b + 1 < num_sub)
             {
@@ -389,21 +388,27 @@ SimulationResult run_simulation(
                         bool do_trend = (config.strategy_mode == StrategyMode::TrendContinuation
                                       || config.strategy_mode == StrategyMode::Both);
 
-                        if (do_mr && !sym.pending_mr.active)
-                            arm_pending(sym.pending_mr,
-                                StrategyMode::MeanReversion,
-                                *sig, level, atr,
+                        // Arm a pending only if price is on the approaching side
+                        // of the threshold (i.e. an actual cross is still required
+                        // to fire). For a Long pending the threshold must be above
+                        // current close; for a Short pending it must be below.
+                        // This prevents ghost re-fires after a TP where price has
+                        // gapped past the threshold but the bar's high/low still
+                        // trivially satisfies try_execute's level check.
+                        auto try_arm = [&](PendingEntry& p, StrategyMode m) {
+                            if (p.active) return;
+                            arm_pending(p, m, *sig, level, atr,
                                 config.trigger_atr_mult,
                                 config.tp_atr_mult,
                                 config.sl_atr_mult);
+                            bool approaching = (p.direction == Direction::Long)
+                                ? bar.bid_close < p.threshold
+                                : bar.bid_close > p.threshold;
+                            if (!approaching) p.active = false;
+                        };
 
-                        if (do_trend && !sym.pending_trend.active)
-                            arm_pending(sym.pending_trend,
-                                StrategyMode::TrendContinuation,
-                                *sig, level, atr,
-                                config.trigger_atr_mult,
-                                config.tp_atr_mult,
-                                config.sl_atr_mult);
+                        if (do_mr)    try_arm(sym.pending_mr,    StrategyMode::MeanReversion);
+                        if (do_trend) try_arm(sym.pending_trend, StrategyMode::TrendContinuation);
                     }
                 }
             }
